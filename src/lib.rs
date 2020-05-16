@@ -321,10 +321,8 @@ impl AnvilRegion {
     /// Calculates used sectors.
     fn used_sectors(total_sectors: u32, chunks_metadata: &[AnvilChunkMetadata]) -> BitVec {
         let mut used_sectors = bitvec![0; total_sectors as usize];
-
         used_sectors.set(0, true);
         used_sectors.set(1, true);
-
         for metadata in chunks_metadata {
             if metadata.is_empty() {
                 continue;
@@ -334,7 +332,9 @@ impl AnvilRegion {
             let end_index = start_index + metadata.sectors as usize;
 
             for index in start_index..end_index {
-                used_sectors.set(index, true);
+                if index < used_sectors.len() {
+                    used_sectors.set(index, true);
+                }
             }
         }
 
@@ -445,9 +445,10 @@ impl AnvilRegion {
         // Release used sectors.
         for i in 0..metadata.sectors {
             let sector_index = metadata.sector_index as usize + i as usize;
-            self.used_sectors.set(sector_index, false);
+            if sector_index < self.used_sectors.capacity() {
+                self.used_sectors.set(sector_index, false);
+            }
         }
-
         let file_length = self.file.metadata()?.len();
         let total_sectors = file_length / REGION_SECTOR_BYTES_LENGTH as u64;
 
@@ -455,7 +456,7 @@ impl AnvilRegion {
         let mut sectors_free = 0;
 
         for sector_index in 0..total_sectors {
-            if self.used_sectors[sector_index as usize] {
+            if sector_index >= self.used_sectors.capacity() as u64 || self.used_sectors[sector_index as usize] {
                 sectors_free = 0;
                 continue;
             }
@@ -468,6 +469,9 @@ impl AnvilRegion {
 
                 // Acquire used sectors.
                 for i in 0..sectors_free {
+                    if i as usize >= self.used_sectors.capacity(){
+                        return Err(io::Error::last_os_error())
+                    }
                     let sector_index = put_sector_index as usize + i as usize;
                     self.used_sectors.set(sector_index, true);
                 }
